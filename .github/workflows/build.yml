@@ -1,0 +1,65 @@
+name: Build TextExtractor.exe
+
+on:
+  workflow_dispatch:          # manual "Run workflow" button
+  push:
+    branches: [main]
+    paths:
+      - text_extractor.py
+      - icon.png
+      - .github/workflows/build.yml
+    tags: ["v*"]              # pushing a tag like v1.0.0 also publishes a release
+
+permissions:
+  contents: write             # needed to attach the exe to a release
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"   # rapidocr_onnxruntime doesn't install on 3.13+
+          cache: pip
+
+      - name: Install dependencies
+        run: >-
+          pip install rapidocr_onnxruntime==1.4.4 onnxruntime pillow numpy pystray pyinstaller
+
+      - name: Build exe
+        run: >-
+          pyinstaller --noconsole --onefile --name TextExtractor
+          --icon icon.png --add-data "icon.png;."
+          --collect-all rapidocr_onnxruntime
+          text_extractor.py
+
+      - name: Check the OCR models were bundled
+        run: |
+          $listing = pyi-archive_viewer -l dist\TextExtractor.exe | Out-String
+          foreach ($m in "ch_PP-OCRv4_det_infer.onnx", "ch_PP-OCRv4_rec_infer.onnx", "ch_ppocr_mobile_v2.0_cls_infer.onnx") {
+            if ($listing -notmatch [regex]::Escape($m)) { Write-Error "Missing model: $m"; exit 1 }
+          }
+          Write-Host "All three models are inside the exe."
+
+      - name: Checksum
+        run: |
+          $hash = (Get-FileHash dist\TextExtractor.exe -Algorithm SHA256).Hash
+          "$hash  TextExtractor.exe" | Out-File dist\TextExtractor.exe.sha256 -Encoding ascii
+          Write-Host "SHA256: $hash"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TextExtractor
+          path: |
+            dist/TextExtractor.exe
+            dist/TextExtractor.exe.sha256
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/TextExtractor.exe
+            dist/TextExtractor.exe.sha256
