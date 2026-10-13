@@ -2,6 +2,11 @@ name: Build TextExtractor.exe
 
 on:
   workflow_dispatch:          # manual "Run workflow" button
+    inputs:
+      version:
+        description: "Optional: a version like v1.0.0. If set, a tag and release are created."
+        required: false
+        default: ""
   push:
     branches: [main]
     paths:
@@ -22,7 +27,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"   # rapidocr_onnxruntime doesn't install on 3.13+
-          cache: pip
 
       - name: Install dependencies
         run: >-
@@ -57,9 +61,11 @@ jobs:
             dist/TextExtractor.exe.sha256
 
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.version || github.ref_name }}
+          target_commitish: ${{ github.sha }}
           files: |
             dist/TextExtractor.exe
             dist/TextExtractor.exe.sha256
